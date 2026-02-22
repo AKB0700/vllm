@@ -133,7 +133,9 @@ ENV UV_LINK_MODE=copy
 RUN gcc --version
 
 # Ensure CUDA compatibility library is loaded
-RUN echo "/usr/local/cuda-$(echo "$CUDA_VERSION" | cut -d. -f1,2)/compat/" > /etc/ld.so.conf.d/cuda-compat.conf && ldconfig
+RUN echo "/usr/local/cuda-$(echo "$CUDA_VERSION" | cut -d. -f1,2)/compat/" \
+    > /etc/ld.so.conf.d/cuda-compat.conf \
+    && ldconfig
 
 # ============================================================
 # SLOW-CHANGING DEPENDENCIES BELOW
@@ -214,7 +216,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         && python3 use_existing_torch.py --prefix \
         && uv pip install --python /opt/venv/bin/python3 -r requirements/build.txt \
         && echo "Installing torch nightly..." \
-        && uv pip install --python /opt/venv/bin/python3 $(cat torch_lib_versions.txt | grep -i "^torch=" | xargs) --pre \
+        && uv pip install --python /opt/venv/bin/python3 \
+        $(cat torch_lib_versions.txt | grep -i "^torch=" | xargs) --pre \
         --index-url ${PYTORCH_CUDA_INDEX_BASE_URL}/nightly/cu$(echo $CUDA_VERSION | cut -d. -f1,2 | tr -d '.'); \
     else \
         echo "Installing build requirements..." \
@@ -380,7 +383,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         && python3 use_existing_torch.py --prefix \
         && uv pip install --python /opt/venv/bin/python3 -r requirements/build.txt \
         && echo "Installing torch nightly..." \
-        && uv pip install --python /opt/venv/bin/python3 $(cat torch_lib_versions.txt | grep -i "^torch=" | xargs) --pre \
+        && uv pip install --python /opt/venv/bin/python3 \
+            $(cat torch_lib_versions.txt | grep -i "^torch=" | xargs) --pre \
         --index-url ${PYTORCH_CUDA_INDEX_BASE_URL}/nightly/cu$(echo $CUDA_VERSION | cut -d. -f1,2 | tr -d '.'); \
     else \
         echo "Installing build requirements..." \
@@ -494,13 +498,11 @@ ARG GET_PIP_URL
 ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /vllm-workspace
 
-
 # Python version string for paths (e.g., "312" for 3.12)
-RUN PYTHON_VERSION_STR=$(echo ${PYTHON_VERSION} | sed 's/\.//g') && \
-    echo "export PYTHON_VERSION_STR=${PYTHON_VERSION_STR}" >> /etc/environment
-
 # Install Python and system dependencies
-RUN apt-get update -y \
+RUN PYTHON_VERSION_STR=$(echo ${PYTHON_VERSION} | sed 's/\.//g') && \
+    echo "export PYTHON_VERSION_STR=${PYTHON_VERSION_STR}" >> /etc/environment && \
+    apt-get update -y \
     && apt-get install -y --no-install-recommends \
         software-properties-common \
         curl \
@@ -534,11 +536,9 @@ RUN apt-get update -y \
     && update-alternatives --set python3 /usr/bin/python${PYTHON_VERSION} \
     && ln -sf /usr/bin/python${PYTHON_VERSION}-config /usr/bin/python3-config \
     && curl -sS ${GET_PIP_URL} | python${PYTHON_VERSION} \
-    && python3 --version && python3 -m pip --version
-
-# Install CUDA development tools for runtime JIT compilation
-# (FlashInfer, DeepGEMM, EP kernels all require compilation at runtime)
-RUN CUDA_VERSION_DASH=$(echo $CUDA_VERSION | cut -d. -f1,2 | tr '.' '-') && \
+    && python3 --version && python3 -m pip --version && \
+    python3 -m pip install uv && \
+    CUDA_VERSION_DASH=$(echo $CUDA_VERSION | cut -d. -f1,2 | tr '.' '-') && \
     apt-get update -y && \
     apt-get install -y --no-install-recommends \
         cuda-nvcc-${CUDA_VERSION_DASH} \
@@ -547,13 +547,10 @@ RUN CUDA_VERSION_DASH=$(echo $CUDA_VERSION | cut -d. -f1,2 | tr '.' '-') && \
         cuda-cuobjdump-${CUDA_VERSION_DASH} \
         libcurand-dev-${CUDA_VERSION_DASH} \
         libcublas-${CUDA_VERSION_DASH} \
-        # Fixes nccl_allocator requiring nccl.h at runtime
-        # https://github.com/vllm-project/vllm/blob/1336a1ea244fa8bfd7e72751cabbdb5b68a0c11a/vllm/distributed/device_communicators/pynccl_allocator.py#L22
         libnccl-dev && \
-    rm -rf /var/lib/apt/lists/*
-
-# Install uv for faster pip installs
-RUN python3 -m pip install uv
+    rm -rf /var/lib/apt/lists/* && \
+    echo "/usr/local/cuda-$(echo "$CUDA_VERSION" | cut -d. -f1,2)/compat/" > /etc/ld.so.conf.d/cuda-compat.conf && \
+    ldconfig
 
 # Environment for uv
 ENV UV_HTTP_TIMEOUT=500
